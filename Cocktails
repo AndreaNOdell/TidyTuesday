@@ -1,0 +1,157 @@
+library(tidyverse)
+library(igraph)
+library(viridis)
+library(scales)
+library(RColorBrewer)
+library(ggplot2)
+
+
+#load in data
+cocktails <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-05-26/cocktails.csv')
+
+#########################
+##### clean up data #####
+#########################
+
+# Select columns I want to work with
+cocktails_working <- cocktails %>% 
+  select(row_id, drink, alcoholic, category, glass, ingredient_number, ingredient)
+
+# Change all characters in ingredient column to lower case (removes repeats)
+cocktails_working$ingredient <- tolower(cocktails_working$ingredient)
+
+
+
+
+##################################
+##### Understanding the data #####
+##################################
+
+# How many drinks are captured in this dataset
+unique(cocktails_working$drink) # 546
+
+#Most used ingredients
+  # How many times an ingredient is used
+cocktails_working_ingredient <- count(cocktails_working, ingredient)
+  # Organize in descending count order
+cocktails_working_ingredient <- arrange(cocktails_working_ingredient, desc(n))
+
+
+### So I like the idea of working with ingredients - will run a network analysis to determine ###
+########### which ingredients are most often paired/linked with eachother in a drink. ###########
+
+# Will limit my analysis to the top 30 most common ingredients
+cocktails_working_ingredient_30 <- slice(cocktails_working_ingredient, 1:30)
+
+
+# Proportion of the data used when considering only the top 30
+sum(cocktails_working_ingredient_30$n)/sum(cocktails_working_ingredient$n) # This subset only captures 52% of the data available
+
+# Create vector of top 30 ingredients
+ingredient30 = cocktails_working_ingredient_30$ingredient
+
+# Transform the data set to network dataset- selected rows with ingredients I'm using
+cocktails_NetworkAnal_data <- cocktails_working %>% 
+  select(drink,ingredient) %>%
+  filter(ingredient %in% ingredient30) %>% 
+  mutate(measurement=1)
+
+# create dataset with column for drinks, ingredient, and 0 or 1 for presence of that ingredient.
+test <- data.frame(drink=sort(rep(unique(cocktails_NetworkAnal_data$drink),30)),ingredient=ingredient30)
+test2 <- left_join(test,cocktails_NetworkAnal_data,by=c("drink","ingredient"))
+
+# replace NA with 0s
+test2[is.na(test2)] <- 0
+
+# Remove duplicate rows
+test2 <- unique(test2)
+
+# Change long data to wide format
+test2_wide <- spread(test2, ingredient, measurement)
+
+# Switch rows and columns (it's inverted - need ingredients as rows)
+transpose_test2wide <- data.frame(t(test2_wide[-1]))
+colnames(transpose_test2wide) <- test2_wide[, 1]
+
+# Set as matrix class
+test_matrix <- data.matrix(transpose_test2wide, rownames.force = NA)
+
+# Create adjacency matrix
+test_adjacency <- test_matrix %*% t(test_matrix)
+
+
+############################
+### Run network analysis ###
+############################
+
+# create the network object from adjacency matrix
+network <- graph_from_adjacency_matrix(test_adjacency, weighted = TRUE)
+simplify(network, remove.multiple = TRUE, remove.loops = TRUE,
+         edge.attr.comb = igraph_opt("edge.attr.comb"))
+
+
+l <- layout_with_fr(network)
+o <- layout_in_circle(network)
+
+# plot it
+plot(network, 
+     vertex.label=vertex_attr(network)$name,
+     vertex.size=4,
+     vertex.label.dist=0.2, 
+     vertex.color="red", 
+     edge.arrow.size=0, 
+     layout = l,
+     edge.width=(edge_attr(network)$weight)/5)
+
+#### Not a fan of the adjacency matrix - I am switching to Edge List
+
+# create the network object from edge list which include weight and number of each attribute
+as.data.frame(cocktails_working_ingredient_30)
+test_edgelist <- get.data.frame(network)
+
+# Convert to graph class and simplify relationships by removing loops from an ingredient to itself
+network_edgelist <- graph_from_data_frame(d=test_edgelist, vertices=cocktails_working_ingredient_30, directed=T) 
+network_edgelist <- simplify(network_edgelist, remove.multiple = F, remove.loops = T) 
+
+E(network_edgelist)       # The edges of the "net" object
+V(network_edgelist)       # The vertices of the "net" object
+E(network_edgelist)$weight  # Edge attribute "weight"
+V(network_edgelist)$name
+
+# Different network analysis layouts
+m <- layout_with_fr(network_edgelist)   # uses force-directed layout algorithm
+n <- layout_in_circle(network_edgelist) # Circular layout
+
+#####################
+### Visualization ###
+#####################
+
+#Color Palettes
+show_col(viridis(20),  borders = NA)
+# Attach the 'viridis' palette (20 colors)
+palette(viridis(20))
+# Display the hex color codes from the attached palette (we will use these to set vertex colors)
+palette()
+display.brewer.all()
+
+# Function found on internet to place value labels on the outer side of the circle layout
+radian.rescale <- function(x, start=0, direction=1) {
+  c.rotate <- function(x) (x + start) %% (2 * pi) * direction
+  c.rotate(rescale(x, c(0, 2 * pi), range(x)))
+}
+lab.locs <- radian.rescale(x=1:30, direction=-1, start=0)
+
+par(bg="white")
+plot(network_edgelist, 
+     vertex.label=V(network_edgelist)$name,
+     V(network_edgelist)$size <- (V(network_edgelist)$n)/5,
+     vertex.label.dist=1, 
+     vertex.color="#1F968B", 
+     vertex.frame.color = "#1F968B",
+     vertex.label.cex=0.85,
+     vertex.label.color = c("black"),
+     edge.arrow.size=0, 
+     vertex.label.degree=lab.locs,
+     layout = n,
+     edge.width=(edge_attr(network_edgelist)$weight)/5,
+     main = "Co-occurance of top 30 ingredients within cocktails")
