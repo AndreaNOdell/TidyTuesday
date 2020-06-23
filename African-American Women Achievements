@@ -1,0 +1,111 @@
+library(tidyverse)
+library(ggplot2)
+library(scales)
+library(lubridate)
+
+
+firsts <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-06-09/firsts.csv')
+science <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-06-09/science.csv')
+
+# focusing on first achievements by females
+Female_firsts <- firsts %>% 
+  filter(gender == "Female African American Firsts")
+
+# remove certain text to make achievements shorter
+Female_firsts$accomplishment <- gsub('First', '', Female_firsts$accomplishment)
+Female_firsts$accomplishment <- gsub('known', '', Female_firsts$accomplishment)
+Female_firsts$accomplishment <- gsub('African-American', '', Female_firsts$accomplishment)
+Female_firsts$accomplishment <- gsub('woman', '', Female_firsts$accomplishment)
+Female_firsts$accomplishment <- gsub('and', '', Female_firsts$accomplishment)
+
+# Create "positions" for the text so they don't overlap. This is where they will
+# sit on the y-axis in each direction (negative and positive direction)
+positions <- c(0.5, -0.5, 1.0, -1.0, 1.5, -1.5)
+directions <- c(1, -1)
+
+#create a dataset with positions/directions for each year and assign to each 
+# accomplishment
+line_pos <- data.frame(
+  "year"=unique(Female_firsts$year),
+  "position"=rep(positions, length.out=length(unique(Female_firsts$year))),
+  "direction"=rep(directions, length.out=length(unique(Female_firsts$year))))
+
+Female_firsts_working <- merge(x=Female_firsts, y=line_pos, by="year", all = TRUE)
+Female_firsts_working <- Female_firsts_working[with(Female_firsts_working, order(year, category)), ]
+
+text_offset <- 0.05
+Female_firsts_working$year_count <- ave(Female_firsts_working$year==Female_firsts_working$year, Female_firsts_working$year, FUN=cumsum)
+Female_firsts_working$text_position <- (Female_firsts_working$year_count * text_offset * Female_firsts_working$direction) + Female_firsts_working$position
+
+year_buffer <- 2
+
+year_date_range <- seq(min(Female_firsts$year) - 2, max(Female_firsts$year) + 1, by = 10)
+year_df <- data.frame(year_date_range)
+
+#Too many accomplishments to label, so i just subset the ones im most interested in
+Female_firsts_working_sample <- Female_firsts_working %>% 
+  filter(year == "1760" | 
+         year == "1773" | 
+         year == "1794" | 
+         year == "1866" | 
+         year == "1862" |
+         year == "1910" | 
+         year == "1917" |
+         year == "1931" | 
+         year == "1928" |
+         accomplishment == "to earn a Ph.D. in the U.S." |
+         year == "1938" |
+         year == "1948" |
+         year == "1952" |
+         year == "1957" |
+         accomplishment == "elected to U.S. House of Representatives" |
+         accomplishment == "reporter for The New York Times" |
+         year == "1978" |
+         year == "1991" |
+         year == "1992" |
+         year == "1999" |
+         accomplishment == "National Security Advisor" |
+         accomplishment == "billionaire" |
+         year == "2002" |
+         year == "2005" |
+         accomplishment == "CEO of a Fortune 500 company" |
+         accomplishment == "four-star admiral" |
+         accomplishment == "American Bar Association president" )
+
+
+## Fixed any overlapping text
+Female_firsts_working_sample[25, 6] = -1.2
+Female_firsts_working_sample[25, 9] = -1.3
+Female_firsts_working_sample[24, 6] = -1.2
+Female_firsts_working_sample[24, 9] = -1.25
+Female_firsts_working_sample[17, 6] = 0.75
+Female_firsts_working_sample[17, 9] = 0.8
+Female_firsts_working_sample[11, 6] = -0.75
+Female_firsts_working_sample[11, 9] = -0.8
+Female_firsts_working_sample[12, 6] = -0.75
+Female_firsts_working_sample[12, 9] = -0.85
+           
+
+#plot
+timeline_plot<-ggplot(Female_firsts_working, aes(x=year, y = 0, col=category)) +
+  geom_point(aes(y = 0), size=2) +
+  labs(col="Category", title = "Highlighting African-American Women Firsts") +
+  theme_classic() +
+  geom_hline(yintercept=0, color = "black", size=0.3) +
+  geom_segment(data=Female_firsts_working_sample[Female_firsts_working_sample$year_count == 1,], aes(y=position,yend=0,xend=year), color='black', size=0.2) +
+  theme(axis.line.y=element_blank(),
+         axis.text.y=element_blank(),
+         axis.title.x=element_blank(),
+         axis.title.y=element_blank(),
+         axis.ticks.y=element_blank(),
+         axis.text.x =element_blank(),
+         axis.ticks.x =element_blank(),
+         axis.line.x =element_blank(),
+         legend.title = element_blank(),
+         plot.title = element_text(hjust = 0.5),
+         legend.position = "bottom") +
+  geom_text(data=year_df, aes(x=year_date_range,y=-0.1, label = year_date_range),size=2.5,vjust=0.5, color='black', angle=90) +
+  geom_text(data = Female_firsts_working_sample, aes(y=text_position,label=accomplishment),size=2.5)
+
+
+
